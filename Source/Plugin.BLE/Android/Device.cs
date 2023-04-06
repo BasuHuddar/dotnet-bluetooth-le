@@ -13,6 +13,8 @@ using Plugin.BLE.Android.CallbackEventArgs;
 using Trace = Plugin.BLE.Abstractions.Trace;
 using System.Threading;
 using Java.Util;
+using Java.Nio;
+using Java.IO;
 
 namespace Plugin.BLE.Android
 {
@@ -39,9 +41,10 @@ namespace Plugin.BLE.Android
         /// the connect paramaters used when connecting to this device
         /// </summary>
         public ConnectParameters ConnectParameters { get; private set; }
-
+        public byte[] AdvertisementData { get; private set; }
         public Device(Adapter adapter, BluetoothDevice nativeDevice, BluetoothGatt gatt, int rssi, byte[] advertisementData = null) : base(adapter, nativeDevice)
         {
+            AdvertisementData = advertisementData;
             Update(nativeDevice, gatt);
             Rssi = rssi;
             AdvertisementRecords = ParseScanRecord(advertisementData);
@@ -58,7 +61,38 @@ namespace Plugin.BLE.Android
 
 
             Id = ParseDeviceId();
-            Name = NativeDevice.Name;
+            if (string.IsNullOrEmpty(NativeDevice.Name))
+            {
+                ByteBuffer order = ByteBuffer.Wrap(AdvertisementData).Order(ByteOrder.LittleEndian);
+                while (order.Remaining() > 2)
+                {
+                    byte b = (byte)order.Get();
+                    if (b != 0)
+                    {
+                        if (order.Get() != 9)
+                        {
+                            order.Position((order.Position() + b) - 1);
+                        }
+                        else
+                        {
+                            byte[] bArr2 = new byte[(b - 1)];
+                            order.Get(bArr2);
+                            try
+                            {
+                                Name = (System.Text.Encoding.UTF8.GetString(bArr2)).Trim();
+                            }
+                            catch (UnsupportedEncodingException unused)
+                            {
+                                Trace.Message($"[Error]: Can't convert string. {unused.Message}");
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                Name = NativeDevice.Name;
+            }
         }
 
         internal bool IsOperationRequested { get; set; }
